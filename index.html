@@ -1,0 +1,405 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini Minecraft 3D</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+    margin:0;
+    overflow:hidden;
+    background:#78cfff;
+    font-family:Arial,sans-serif;
+}
+#menu{
+    position:fixed;
+    inset:0;
+    z-index:10;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    background:linear-gradient(#55bdf5,#b9ecff);
+}
+#menu h1{
+    font-size:65px;
+    color:white;
+    text-shadow:5px 5px 0 #3b7d32;
+    margin:10px;
+}
+#menu p{
+    color:white;
+    font-size:20px;
+}
+button{
+    padding:16px 45px;
+    border:0;
+    border-radius:10px;
+    background:#55a832;
+    color:white;
+    font-size:22px;
+    cursor:pointer;
+    box-shadow:0 5px 0 #347321;
+}
+button:hover{background:#6bc642}
+
+#game{
+    width:100vw;
+    height:100vh;
+    display:none;
+}
+
+#crosshair{
+    position:fixed;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+    color:white;
+    font-size:30px;
+    z-index:5;
+    text-shadow:0 0 4px black;
+    pointer-events:none;
+}
+
+#info{
+    position:fixed;
+    top:15px;
+    left:15px;
+    z-index:5;
+    background:rgba(0,0,0,.45);
+    color:white;
+    padding:12px;
+    border-radius:10px;
+    line-height:1.6;
+}
+
+#blocks{
+    position:fixed;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%);
+    display:flex;
+    gap:8px;
+    z-index:5;
+}
+.block{
+    width:55px;
+    height:55px;
+    border:3px solid white;
+    border-radius:6px;
+    cursor:pointer;
+}
+.block.selected{
+    border:4px solid yellow;
+    transform:scale(1.1);
+}
+.grass{background:linear-gradient(#4caf35 30%,#80552c 30%)}
+.dirt{background:#80552c}
+.stone{background:#888}
+.wood{background:#9a642e}
+.leaves{background:#27852f}
+</style>
+</head>
+
+<body>
+
+<div id="menu">
+    <h1>⛏ MINI MINECRAFT</h1>
+    <p>Un petit monde 3D créé en HTML</p>
+    <button onclick="startGame()">JOUER</button>
+</div>
+
+<div id="game">
+    <div id="crosshair">+</div>
+
+    <div id="info">
+        🎮 <b>Contrôles</b><br>
+        W A S D : bouger<br>
+        SPACE : sauter<br>
+        🖱️ Clic gauche : casser<br>
+        🖱️ Clic droit : construire<br>
+        1-5 : choisir un bloc
+    </div>
+
+    <div id="blocks">
+        <div class="block grass selected" data-type="grass"></div>
+        <div class="block dirt" data-type="dirt"></div>
+        <div class="block stone" data-type="stone"></div>
+        <div class="block wood" data-type="wood"></div>
+        <div class="block leaves" data-type="leaves"></div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+let scene,camera,renderer;
+let blocks=[];
+let selectedBlock="grass";
+
+const keys={};
+let velocityY=0;
+let canJump=false;
+
+function startGame(){
+
+    document.getElementById("menu").style.display="none";
+    document.getElementById("game").style.display="block";
+
+    init();
+}
+
+function init(){
+
+    scene=new THREE.Scene();
+
+    scene.background=new THREE.Color(0x78cfff);
+
+    scene.fog=new THREE.Fog(0x78cfff,30,100);
+
+    camera=new THREE.PerspectiveCamera(
+        75,
+        innerWidth/innerHeight,
+        0.1,
+        200
+    );
+
+    camera.position.set(0,5,8);
+
+    renderer=new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(innerWidth,innerHeight);
+    renderer.shadowMap.enabled=true;
+
+    document.getElementById("game").appendChild(renderer.domElement);
+
+    // Lumière
+    const sun=new THREE.DirectionalLight(0xffffff,1.2);
+    sun.position.set(20,30,10);
+    sun.castShadow=true;
+    scene.add(sun);
+
+    scene.add(new THREE.HemisphereLight(
+        0x87ceeb,
+        0x555555,
+        0.7
+    ));
+
+    // Sol
+    for(let x=-15;x<=15;x++){
+        for(let z=-15;z<=15;z++){
+
+            createBlock(x,0,z,"grass");
+
+            if(Math.random()<0.12){
+                createTree(x,1,z);
+            }
+        }
+    }
+
+    // Petites collines
+    for(let i=0;i<35;i++){
+
+        let x=Math.floor(Math.random()*25)-12;
+        let z=Math.floor(Math.random()*25)-12;
+
+        createBlock(x,1,z,"dirt");
+
+        if(Math.random()<0.5)
+            createBlock(x,2,z,"grass");
+    }
+
+    // Contrôles
+    document.addEventListener("keydown",e=>{
+        keys[e.key.toLowerCase()]=true;
+
+        if(e.code==="Space" && canJump){
+            velocityY=0.22;
+            canJump=false;
+        }
+
+        if(["1","2","3","4","5"].includes(e.key)){
+            const types=["grass","dirt","stone","wood","leaves"];
+            selectBlock(types[Number(e.key)-1]);
+        }
+    });
+
+    document.addEventListener("keyup",e=>{
+        keys[e.key.toLowerCase()]=false;
+    });
+
+    renderer.domElement.addEventListener("mousedown",mouseAction);
+
+    window.addEventListener("resize",resize);
+
+    animate();
+}
+
+function createBlock(x,y,z,type){
+
+    const geo=new THREE.BoxGeometry(1,1,1);
+
+    let color;
+
+    if(type==="grass") color=0x55a832;
+    if(type==="dirt") color=0x80552c;
+    if(type==="stone") color=0x888888;
+    if(type==="wood") color=0x9a642e;
+    if(type==="leaves") color=0x27852f;
+
+    const mat=new THREE.MeshLambertMaterial({
+        color:color
+    });
+
+    const cube=new THREE.Mesh(geo,mat);
+
+    cube.position.set(x,y,z);
+
+    cube.castShadow=true;
+    cube.receiveShadow=true;
+
+    cube.userData.type=type;
+
+    scene.add(cube);
+    blocks.push(cube);
+
+    return cube;
+}
+
+function createTree(x,y,z){
+
+    for(let i=0;i<3;i++){
+        createBlock(x,y+i,z,"wood");
+    }
+
+    for(let dx=-1;dx<=1;dx++){
+        for(let dz=-1;dz<=1;dz++){
+            createBlock(x+dx,y+3,z+dz,"leaves");
+        }
+    }
+}
+
+function selectBlock(type){
+
+    selectedBlock=type;
+
+    document.querySelectorAll(".block").forEach(b=>{
+        b.classList.remove("selected");
+
+        if(b.dataset.type===type)
+            b.classList.add("selected");
+    });
+}
+
+function mouseAction(e){
+
+    if(e.button===2){
+        e.preventDefault();
+        buildBlock();
+    }
+
+    if(e.button===0){
+        breakBlock();
+    }
+}
+
+document.addEventListener("contextmenu",e=>{
+    if(document.getElementById("game").style.display==="block")
+        e.preventDefault();
+});
+
+function getTarget(){
+
+    const raycaster=new THREE.Raycaster();
+
+    raycaster.setFromCamera(
+        new THREE.Vector2(0,0),
+        camera
+    );
+
+    const hits=raycaster.intersectObjects(blocks);
+
+    if(hits.length>0 && hits[0].distance<8)
+        return hits[0];
+
+    return null;
+}
+
+function breakBlock(){
+
+    const hit=getTarget();
+
+    if(!hit)return;
+
+    const block=hit.object;
+
+    scene.remove(block);
+
+    blocks=blocks.filter(b=>b!==block);
+}
+
+function buildBlock(){
+
+    const hit=getTarget();
+
+    if(!hit)return;
+
+    const block=hit.object;
+
+    const normal=hit.face.normal.clone();
+
+    const pos=block.position.clone().add(normal);
+
+    // éviter de construire directement dans la caméra
+    if(pos.distanceTo(camera.position)<1.5)return;
+
+    createBlock(
+        Math.round(pos.x),
+        Math.round(pos.y),
+        Math.round(pos.z),
+        selectedBlock
+    );
+}
+
+function update(){
+
+    const speed=0.10;
+
+    if(keys["w"]) camera.position.z-=speed;
+    if(keys["s"]) camera.position.z+=speed;
+    if(keys["a"]) camera.position.x-=speed;
+    if(keys["d"]) camera.position.x+=speed;
+
+    velocityY-=0.012;
+    camera.position.y+=velocityY;
+
+    if(camera.position.y<=2.2){
+        camera.position.y=2.2;
+        velocityY=0;
+        canJump=true;
+    }
+}
+
+function animate(){
+
+    requestAnimationFrame(animate);
+
+    update();
+
+    renderer.render(scene,camera);
+}
+
+function resize(){
+
+    camera.aspect=innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(innerWidth,innerHeight);
+}
+</script>
+
+</body>
+</html>
+```
